@@ -35,7 +35,7 @@ type tplData struct {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "vanity",
+	Use:   "vanityimport",
 	Short: "Utilities for Go vanity imports",
 	Long:  "A small CLI that can generate vanity import HTML files and rewrite Go import paths.",
 }
