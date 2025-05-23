@@ -8,8 +8,8 @@
 
 | Capability           | Description                                                                                                                                                                  |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`vanity html`**    | Generate an `index.html` with the correct `<meta>` tags for a custom domain (e.g. `go.example.com/project`).                                                                 |
-| **`vanity rewrite`** | Recursively scan a directory and rewrite matching `import` paths from a VCS host (e.g. `github.com/user/project`) to your vanity domain. Skips hidden folders and `vendor/`. |
+| **`vanityimport html`**    | Generate an `index.html` with the correct `<meta>` tags for a custom domain (e.g. `go.example.com/project`).                                                                 |
+| **`vanityimport rewrite`** | Recursively scan a directory and rewrite matching `import` paths from a VCS host (e.g. `github.com/user/project`) to your vanity domain. Skips hidden folders and `vendor/`. |
 
 ## 🚀 Installation
 
@@ -20,22 +20,22 @@ go install github.com/hungtrd/vanityimport@latest  # once published
 # or clone & build locally
 
 git clone https://github.com/hungtrd/vanityimport.git
-cd vanity
-go build -o vanity .
+cd vanityimport
+go build -o vanityimport .
 ```
 
-The binary `vanity` will be placed in the current directory. Add it to your `$PATH` if desired.
+The binary `vanityimport` will be placed in the current directory. Add it to your `$PATH` if desired.
 
 ## 🛠 Usage
 
 ```bash
-vanity <command> [flags]
+vanityimport <command> [flags]
 ```
 
 ### 1. Generate an HTML vanity page
 
 ```bash
-vanity html \
+vanityimport html \
   --domain go.example.com \
   --repo   github.com/user/project \
   --out    ./site          # default: current directory
@@ -48,7 +48,7 @@ Once generated, push the `index.html` file (or the whole `site/` folder) to the 
 ### 2. Rewrite import paths in existing code
 
 ```bash
-vanity rewrite \
+vanityimport rewrite \
   --old github.com/user/project \
   --new go.example.com/project \
   --dir ./                # default: .
@@ -76,13 +76,13 @@ vanity rewrite \
 1. **Create vanity page** for your project:
 
    ```bash
-   vanity html -d go.hung.rocks -r github.com/hungtrd/project -o ./docs
+   vanityimport html -d go.hung.rocks -r github.com/hungtrd/project -o ./docs
    ```
 2. **Publish** the `docs/` folder via GitHub Pages and point DNS `CNAME` `go.hung.rocks` ➜ `username.github.io`.
 3. **Rewrite code base** to use the new domain:
 
    ```bash
-   vanity rewrite -o github.com/hungtrd/project -n go.hung.rocks/project -d .
+   vanityimport rewrite -o github.com/hungtrd/project -n go.hung.rocks/project -d .
    ```
 4. Commit & push changes. From now on, users can:
 
