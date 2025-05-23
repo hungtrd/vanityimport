@@ -16,7 +16,7 @@
 > Requires **Go 1.20+**.
 
 ```bash
-go install github.com/hungtrd/vanityimport@latest  # once published
+go install go.hung.rocks/vanityimport@latest  # once published
 # or clone & build locally
 
 git clone https://github.com/hungtrd/vanityimport.git
