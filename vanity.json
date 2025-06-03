@@ -3,5 +3,6 @@
   "packages": [
     { "suffix": "vanityimport",      "repo": "github.com/hungtrd/vanityimport" },
     { "suffix": "stickhero",      "repo": "github.com/hungtrd/stickhero" },
+    { "suffix": "uuidconv",      "repo": "github.com/hungtrd/uuidconv" },
   ]
 }
