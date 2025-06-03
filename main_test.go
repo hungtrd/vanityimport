@@ -25,7 +25,7 @@ func TestGenerateHTML(t *testing.T) {
 	domain := "go.example.com"
 	repo := "github.com/user/project"
 
-	if err := generateHTML(domain, repo, td); err != nil {
+	if err := generateHTMLForRepo(domain, repo, td); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -48,7 +48,7 @@ func TestGenerateHTML(t *testing.T) {
 }
 
 func TestGenerateHTML_InvalidRepo(t *testing.T) {
-	err := generateHTML("go.example.com", "invalid", t.TempDir())
+	err := generateHTMLForRepo("go.example.com", "invalid", t.TempDir())
 	if err == nil {
 		t.Fatal("expected error for invalid repo, got nil")
 	}

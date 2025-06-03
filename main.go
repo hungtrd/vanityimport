@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/format"
 	"go/parser"
@@ -17,6 +18,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ------------------------------------------------------------
+// Template used for each generated vanity page
+// ------------------------------------------------------------
 const htmlTmpl = `<!DOCTYPE html>
 <html><head>
   <meta charset="utf-8"/>
@@ -27,70 +31,123 @@ const htmlTmpl = `<!DOCTYPE html>
   Redirecting…
 </body></html>`
 
-// tplData holds data passed to the HTML template.
+//------------------------------------------------------------
+// Types
+//------------------------------------------------------------
+
 type tplData struct {
 	Domain string
 	Repo   string
 	Suffix string
 }
 
+type Manifest struct {
+	// Global custom domain; can be overridden by --domain flag.
+	Domain   string     `json:"domain"`
+	Packages []PkgEntry `json:"packages"`
+}
+
+type PkgEntry struct {
+	// Import suffix under the domain, e.g. "project" or "foo/bar".
+	Suffix string `json:"suffix"`
+	// Full backing repo URL, e.g. "github.com/hungtrd/project".
+	Repo string `json:"repo"`
+}
+
+//------------------------------------------------------------
+// Cobra root & sub‑commands
+//------------------------------------------------------------
+
 var rootCmd = &cobra.Command{
 	Use:   "vanityimport",
 	Short: "Utilities for Go vanity imports",
-	Long:  "A small CLI that can generate vanity import HTML files and rewrite Go import paths.",
+	Long:  "Generate vanity import pages and rewrite import paths in a Go codebase.",
 }
+
+//-------------------------------------------------- html cmd
 
 var htmlCmd = &cobra.Command{
 	Use:   "html",
-	Short: "Generate index.html for a vanity import path",
-	Run: func(cmd *cobra.Command, args []string) {
+	Short: "Generate a single index.html for one vanity import path",
+	RunE: func(cmd *cobra.Command, args []string) error {
 		domain, _ := cmd.Flags().GetString("domain")
 		repo, _ := cmd.Flags().GetString("repo")
 		outDir, _ := cmd.Flags().GetString("out")
 
 		if domain == "" || repo == "" {
-			_ = cmd.Help()
-			os.Exit(1)
+			return fmt.Errorf("--domain and --repo are required")
 		}
-
-		if err := generateHTML(domain, repo, outDir); err != nil {
-			log.Fatalf("generate html: %v", err)
-		}
+		return generateHTMLForRepo(domain, repo, outDir)
 	},
 }
+
+//-------------------------------------------------- rewrite cmd
 
 var rewriteCmd = &cobra.Command{
 	Use:   "rewrite",
 	Short: "Rewrite Go import paths in source files",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		oldPath, _ := cmd.Flags().GetString("old")
 		newPath, _ := cmd.Flags().GetString("new")
 		dir, _ := cmd.Flags().GetString("dir")
 
 		if oldPath == "" || newPath == "" {
-			_ = cmd.Help()
-			os.Exit(1)
+			return fmt.Errorf("--old and --new are required")
 		}
+		return rewriteImports(dir, oldPath, newPath)
+	},
+}
 
-		if err := rewriteImports(dir, oldPath, newPath); err != nil {
-			log.Fatalf("rewrite imports: %v", err)
+//-------------------------------------------------- build cmd
+
+var buildCmd = &cobra.Command{
+	Use:   "build",
+	Short: "Generate HTML pages for every package specified in a manifest file",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, _ := cmd.Flags().GetString("config")
+		outDir, _ := cmd.Flags().GetString("out")
+		overrideDomain, _ := cmd.Flags().GetString("domain")
+
+		if cfg == "" {
+			return fmt.Errorf("manifest --config is required")
 		}
+		m, err := loadManifest(cfg)
+		if err != nil {
+			return err
+		}
+		// allow CLI flag to override domain
+		if overrideDomain != "" {
+			m.Domain = overrideDomain
+		}
+		if m.Domain == "" {
+			return fmt.Errorf("domain is missing (manifest or flag)")
+		}
+		for _, p := range m.Packages {
+			if err := generateHTML(m.Domain, p.Suffix, p.Repo, outDir); err != nil {
+				return fmt.Errorf("generate %s: %w", p.Suffix, err)
+			}
+		}
+		return nil
 	},
 }
 
 func init() {
-	// Flags for the html sub‑command
+	// html
 	htmlCmd.Flags().StringP("domain", "d", "", "custom domain (e.g. go.example.com)")
 	htmlCmd.Flags().StringP("repo", "r", "", "VCS repository path (e.g. github.com/user/project)")
 	htmlCmd.Flags().StringP("out", "o", ".", "output directory for index.html")
 
-	// Flags for the rewrite sub‑command
+	// rewrite
 	rewriteCmd.Flags().StringP("old", "o", "", "old import prefix to replace (e.g. github.com/user/project)")
 	rewriteCmd.Flags().StringP("new", "n", "", "new import prefix (e.g. go.example.com/project)")
 	rewriteCmd.Flags().StringP("dir", "d", ".", "directory to scan recursively for .go files")
 
-	rootCmd.AddCommand(htmlCmd)
-	rootCmd.AddCommand(rewriteCmd)
+	// build
+	buildCmd.Flags().StringP("config", "c", "vanity.json", "path to manifest file (json)")
+	buildCmd.Flags().StringP("out", "o", "public", "output directory for generated pages")
+	buildCmd.Flags().StringP("domain", "d", "", "override domain defined in manifest")
+
+	rootCmd.AddCommand(htmlCmd, rewriteCmd, buildCmd)
 }
 
 func main() {
@@ -99,26 +156,51 @@ func main() {
 	}
 }
 
-// generateHTML creates an index.html with vanity import meta‑tags in outDir.
-func generateHTML(domain, repo, outDir string) error {
+//------------------------------------------------------------
+// Manifest helper
+//------------------------------------------------------------
+
+func loadManifest(path string) (*Manifest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("parse manifest: %w", err)
+	}
+	return &m, nil
+}
+
+//------------------------------------------------------------
+// HTML generation helpers
+//------------------------------------------------------------
+
+// generateHTMLForRepo keeps old CLI compatibility (html command).
+func generateHTMLForRepo(domain, repo, outDir string) error {
 	parts := strings.Split(strings.TrimSuffix(repo, "/"), "/")
 	if len(parts) < 3 {
 		return fmt.Errorf("repo should be in the form github.com/user/project")
 	}
 	suffix := parts[len(parts)-1]
+	return generateHTML(domain, suffix, repo, outDir)
+}
 
+// generateHTML creates an index.html with vanity meta tags at outDir/<suffix>/index.html.
+func generateHTML(domain, suffix, repo, outDir string) error {
 	data := tplData{Domain: domain, Repo: repo, Suffix: suffix}
 
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	fullDir := filepath.Join(outDir, filepath.FromSlash(suffix))
+	if err := os.MkdirAll(fullDir, 0o755); err != nil {
 		return err
 	}
 
-	filePath := filepath.Join(outDir, "index.html")
+	filePath := filepath.Join(fullDir, "index.html")
 	f, err := os.Create(filePath)
 	if err != nil {
 		return err
 	}
-	defer f.Close() //nolint: errcheck
+	defer f.Close()
 
 	if err := template.Must(template.New("vanity").Parse(htmlTmpl)).Execute(f, data); err != nil {
 		return err
@@ -128,7 +210,10 @@ func generateHTML(domain, repo, outDir string) error {
 	return nil
 }
 
-// rewriteImports walks root and rewrites import paths that start with oldPath to newPath.
+//------------------------------------------------------------
+// Import‑rewriter (unchanged logic except helper refactor)
+//------------------------------------------------------------
+
 func rewriteImports(root, oldPath, newPath string) error {
 	fset := token.NewFileSet()
 	absRoot, _ := filepath.Abs(root)
@@ -137,27 +222,20 @@ func rewriteImports(root, oldPath, newPath string) error {
 		if err != nil {
 			return err
 		}
-
-		// Handle directories first
 		if d.IsDir() {
-			// Skip hidden or vendor directories, **except** the root itself even if root == "."
 			if path != absRoot && (strings.HasPrefix(d.Name(), ".") || d.Name() == "vendor") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-
-		// Skip non-Go files or hidden files
 		if strings.HasPrefix(d.Name(), ".") || filepath.Ext(path) != ".go" {
 			return nil
 		}
 
-		// Read & parse the Go file
 		src, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-
 		file, err := parser.ParseFile(fset, path, src, parser.ParseComments)
 		if err != nil {
 			return err
@@ -171,7 +249,6 @@ func rewriteImports(root, oldPath, newPath string) error {
 				modified = true
 			}
 		}
-
 		if !modified {
 			return nil
 		}
@@ -180,11 +257,9 @@ func rewriteImports(root, oldPath, newPath string) error {
 		if err := format.Node(&buf, fset, file); err != nil {
 			return err
 		}
-
 		if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 			return err
 		}
-
 		fmt.Printf("Rewrote imports in %s\n", path)
 		return nil
 	})
