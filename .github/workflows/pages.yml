@@ -1,5 +1,10 @@
 name: Publish vanity pages
 
+permissions:
+  contents: write      # cho phép push vào repo
+  pages: write         # (không hại nếu dư)
+  id-token: write
+
 on:
   push:
     paths:
