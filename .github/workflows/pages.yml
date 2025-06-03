@@ -5,7 +5,7 @@ on:
     paths:
       - vanity.json      # rebuild khi manifest thay đổi
       - '**/*.go'          # hoặc khi code generator thay đổi
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   build:
