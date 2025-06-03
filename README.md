@@ -1,15 +1,18 @@
-# vanity
+# vanityimport
 
-*A tiny CLI to generate Go vanity‑import pages and mass‑rewrite import paths in your source tree.*
+*A lightweight CLI to generate Go **vanity‑import** pages and safely rewrite import paths — now with manifest‑driven multi‑package support.*
 
 ---
 
 ## ✨ Features
 
-| Capability           | Description                                                                                                                                                                  |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`vanityimport html`**    | Generate an `index.html` with the correct `<meta>` tags for a custom domain (e.g. `go.example.com/project`).                                                                 |
-| **`vanityimport rewrite`** | Recursively scan a directory and rewrite matching `import` paths from a VCS host (e.g. `github.com/user/project`) to your vanity domain. Skips hidden folders and `vendor/`. |
+| Capability                | Description                                                                                                                                                                                         |
+|---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **`vanityimport build`**  | Read a **manifest** (`vanity.json` by default) and generate: <br>• one HTML file per package at `<out>/<suffix>/index.html` <br>• a root **index.html** listing all vanity packages. |
+| **`vanityimport html`**   | Generate a single `index.html` for a custom domain + repo (handy for quick tests).                                                                                                                   |
+| **`vanityimport rewrite`**| Recursively scan a directory and rewrite matching `import` paths from a VCS host (e.g. `github.com/user/project`) to your vanity domain. Skips hidden folders and `vendor/`.                           |
+
+---
 
 ## 🚀 Installation
 
@@ -17,6 +20,7 @@
 
 ```bash
 go install go.hung.rocks/vanityimport@latest  # once published
+
 # or clone & build locally
 
 git clone https://github.com/hungtrd/vanityimport.git
@@ -24,7 +28,27 @@ cd vanityimport
 go build -o vanityimport .
 ```
 
-The binary `vanityimport` will be placed in the current directory. Add it to your `$PATH` if desired.
+The binary **`vanityimport`** will be produced in the current directory. Add it to your `$PATH` if desired.
+
+---
+
+## 📦 Manifest format (`vanity.json`)
+
+```json
+{
+  "domain": "go.hung.rocks",
+  "packages": [
+    { "suffix": "project",      "repo": "github.com/hungtrd/project" },
+    { "suffix": "foo/bar",      "repo": "github.com/hungtrd/foo/bar" },
+    { "suffix": "tools/runner", "repo": "github.com/hungtrd/runner" }
+  ]
+}
+```
+* `domain` – vanity root (can override with `--domain`).
+* `suffix` – path segment after the domain → `go.hung.rocks/<suffix>`.
+* `repo` – canonical VCS repository URL.
+
+---
 
 ## 🛠 Usage
 
@@ -32,72 +56,91 @@ The binary `vanityimport` will be placed in the current directory. Add it to you
 vanityimport <command> [flags]
 ```
 
-### 1. Generate an HTML vanity page
+### 1. Build all pages from manifest
+
+```bash
+vanityimport build \
+  --config vanity.json \   # default
+  --out    public          # default
+```
+
+*Creates `public/<suffix>/index.html` for every package **and** a `public/index.html` overview.*  
+Deploy the **`public/`** folder (e.g. via GitHub Pages) and point DNS `CNAME` `go.hung.rocks` ➜ `username.github.io`.
+
+### 2. Generate a single vanity page (ad‑hoc)
 
 ```bash
 vanityimport html \
   --domain go.example.com \
   --repo   github.com/user/project \
-  --out    ./site          # default: current directory
+  --out    ./site
 ```
 
-*Creates `./site/index.html` containing the necessary `go-import` & `go-source` meta tags + a redirect to pkg.go.dev.*
-
-Once generated, push the `index.html` file (or the whole `site/` folder) to the branch/ repo served by **GitHub Pages** and configure your custom domain. Go tools can now `go get go.example.com/project` over HTTPS.
-
-### 2. Rewrite import paths in existing code
+### 3. Rewrite import paths in existing code
 
 ```bash
 vanityimport rewrite \
   --old github.com/user/project \
   --new go.example.com/project \
-  --dir ./                # default: .
+  --dir ./
 ```
 
-*Recursively processes all `.go` files (excluding dot‑files and `vendor/`) and rewrites import specs using the Go AST to ensure syntactic correctness.*
+---
+
+## 🔧 Flags summary
+
+| Command      | Flag               | Default / Req. | Description                                                    |
+|--------------|--------------------|----------------|----------------------------------------------------------------|
+| `build`      | `-c, --config`     | `vanity.json`  | Manifest file path.                                             |
+|              | `-o, --out`        | `public`       | Output directory for generated pages.                          |
+|              | `-d, --domain`     | *(manifest)*   | Override domain defined in the manifest.                       |
+| `html`       | `-d, --domain`     | **required**   | Vanity domain prefix (e.g. `go.example.com`).                  |
+|              | `-r, --repo`       | **required**   | VCS repo URL (e.g. `github.com/user/project`).                 |
+|              | `-o, --out`        | `.`            | Output directory for the generated `index.html`.               |
+| `rewrite`    | `-o, --old`        | **required**   | Import prefix to search for.                                   |
+|              | `-n, --new`        | **required**   | Replacement vanity prefix.                                     |
+|              | `-d, --dir`        | `.`            | Directory to scan recursively (skips dot & `vendor/`).         |
 
 ---
 
-## Flags summary
+## 🖥 Example workflow (GitHub Actions)
 
-| Command   | Flag           | Default        | Description                                    |
-| --------- | -------------- | -------------- | ---------------------------------------------- |
-| `html`    | `-d, --domain` | **(required)** | Vanity domain prefix (e.g. `go.example.com`).  |
-|           | `-r, --repo`   | **(required)** | VCS repo URL (e.g. `github.com/user/project`). |
-|           | `-o, --out`    | `.`            | Output directory for `index.html`.             |
-| `rewrite` | `-o, --old`    | **(required)** | Import prefix to search for.                   |
-|           | `-n, --new`    | **(required)** | Replacement vanity prefix.                     |
-|           | `-d, --dir`    | `.`            | Directory to scan recursively.                 |
+```yaml
+name: Publish vanity pages
 
----
+permissions:
+  contents: write
 
-## Example workflow
+on:
+  push:
+    paths: [vanity.json, '**/*.go']
+    branches: [main]
 
-1. **Create vanity page** for your project:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: 1.22 }
+      - run: go run . build --config vanity.json --out public
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: public
+          publish_branch: gh-pages
+```
 
-   ```bash
-   vanityimport html -d go.hung.rocks -r github.com/hungtrd/project -o ./docs
-   ```
-2. **Publish** the `docs/` folder via GitHub Pages and point DNS `CNAME` `go.hung.rocks` ➜ `username.github.io`.
-3. **Rewrite code base** to use the new domain:
-
-   ```bash
-   vanityimport rewrite -o github.com/hungtrd/project -n go.hung.rocks/project -d .
-   ```
-4. Commit & push changes. From now on, users can:
-
-   ```bash
-   go install go.hung.rocks/project/cmd/app@latest
-   ```
+Push changes to **`vanity.json`** and the workflow rebuilds & deploys the site automatically.
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
 Pull requests and issues are welcome! Please run `go vet ./...` and `go test ./...` before submitting PRs.
 
 ---
 
-## License
+## 📜 License
 
 Distributed under the MIT License. See `LICENSE` for more information.
